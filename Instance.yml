@@ -1,0 +1,100 @@
+Parameters:
+  KeyName:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Description: "Choose a Pre Created Key Pair"
+  AMIFromSSM:
+    Description: "AWS Default AMI from SSM"
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+Resources:
+  UdacityProjectVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.12.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+      - Key: App
+        Value: Udacity-Project
+  PubSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.12.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-A
+  UdacityIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: Udacity-project
+  Attachment4Gateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      InternetGatewayId: !Ref UdacityIGW
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      Tags:
+      - Key: Name
+        Value: Public-RouteTable
+  RouteToIGW:
+    Type: AWS::EC2::Route
+    DependsOn: UdacityIGW
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref UdacityIGW
+  RTAssociation4PubSubnetA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetA
+      RouteTableId: !Ref PublicRouteTable  
+  PublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http and SSH to client host
+      VpcId: !Ref UdacityProjectVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+  PublicInstance:
+    Type: 'AWS::EC2::Instance'
+    DependsOn: Attachment4Gateway
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref AMIFromSSM
+      BlockDeviceMappings: 
+      - DeviceName: "/dev/xvda"
+        Ebs: 
+          VolumeType: "gp2"
+          DeleteOnTermination: "false"
+          VolumeSize: "10"
+      SubnetId: !Ref PubSubnetA 
+      SecurityGroupIds: 
+        - !Ref PublicSecurityGroup
+      Tags: 
+      - Key: "Name"
+        Value: "Public Instance"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum -y update
+          yum -y upgrade
+          yum install -y httpd
+          systemctl enable httpd
+          systemctl start httpd
+          cd /var/www/html
+          echo "<html><h1>This is a heading!!</h1></html>" > index.html

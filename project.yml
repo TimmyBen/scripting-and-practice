@@ -1,0 +1,224 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description:  Cloudformation template to for Udacity second project
+Parameters:
+  KeyName:
+    Type: "AWS::EC2::KeyPair::KeyName"
+    Description: "Choose a Pre Created Key Pair"
+  AMIFromSSM:
+    Description: "AWS Default AMI from SSM"
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  BlogTitle:
+    Description: "Title for Blog"
+    Default: "Timi4Udacity"
+    Type: "String"
+  BucketName:
+    Type: String
+    Description: "Name of Bucket"
+    AllowedValues: 
+      - "timiben4life"
+      - "preptimi999"
+  InstanceType:
+    Type: String
+    Description: "Choose an Instance Type"
+    AllowedValues:
+      - "t2.medium"
+      - "t2.micro"
+    Default: "t2.medium"
+Resources:
+  UdacityProjectVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.12.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+      Tags:
+      - Key: App
+        Value: Udacity-Project
+  PubSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.12.1.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-A
+  PubSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: 10.12.2.0/24
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: public-subnet-B
+  PrivSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      AvailabilityZone: !Select [ 0, !GetAZs '' ]
+      CidrBlock: 10.12.3.0/24
+      Tags:
+        - Key: Name
+          Value: private-subnet-A
+  PrivSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      AvailabilityZone: !Select [ 1, !GetAZs '' ]
+      CidrBlock: 10.12.4.0/24
+      Tags:
+        - Key: Name
+          Value: private-subnet-B
+  UdacityIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+      - Key: Name
+        Value: Udacity-project
+  Attachment4Gateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      InternetGatewayId: !Ref UdacityIGW
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      Tags:
+      - Key: Name
+        Value: Public-RouteTable
+  RouteToIGW:
+    Type: AWS::EC2::Route
+    DependsOn: UdacityIGW
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref UdacityIGW   
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref UdacityProjectVPC
+      Tags:
+      - Key: Name
+        Value: Private-RouteTable
+  UdacityNAT:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt UdacityEIP.AllocationId
+      SubnetId: !Ref PubSubnetA
+      Tags:
+      - Key: Name
+        Value: UdacityNAT
+  UdacityEIP:
+    DependsOn: Attachment4Gateway
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+  RouteToNAT:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref UdacityNAT
+  RTAssociation4PubSubnetA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetA
+      RouteTableId: !Ref PublicRouteTable
+  RTAssociation4PubSubnetB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetB
+      RouteTableId: !Ref PublicRouteTable
+  RTAssociation4PrivSubnetA:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+  RTAssociation4PrivSubnetB:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+  PublicSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow http and SSH to client host
+      VpcId: !Ref UdacityProjectVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+  S3ReadObjectRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: S3ReadAccessRolePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: "s3:*"
+                Resource: [
+               !Sub "arn:aws:s3:::${BucketName}/*",
+               !Sub "arn:aws:s3:::${BucketName}"
+              ]
+  PublicInstanceProfile:
+    Type: 'AWS::IAM::InstanceProfile'
+    Properties:
+      Roles:
+        - !Ref S3ReadObjectRole
+  PublicInstance:
+    Type: 'AWS::EC2::Instance'
+    DependsOn: Attachment4Gateway
+    # CreationPolicy:
+    #   ResourceSignal:
+    #     Timeout: PT5M
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId: !Ref AMIFromSSM
+      BlockDeviceMappings: 
+      - DeviceName: "/dev/xvda"
+        Ebs: 
+          VolumeType: "gp2"
+          DeleteOnTermination: "false"
+          VolumeSize: "10"
+      SubnetId: !Ref PubSubnetA 
+      SecurityGroupIds: 
+        - !Ref PublicSecurityGroup
+      IamInstanceProfile: !Ref PublicInstanceProfile
+      # Tags: 
+      # - Key: "Name"
+      #   Value: "Public Instance"
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          yum -y update
+          yum -y upgrade
+          yum install -y httpd
+          systemctl enable httpd
+          systemctl start httpd
+          sudo aws s3 cp --recursive s3://${BucketName}/ /var/www/html
+          cd /var/www/html
+          sudo sed -i "s/Udacity/${BlogTitle}/" index.html
+          # /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackId} --resource PublicInstance --region ${AWS::Region}
+  
+  
