@@ -1,6 +1,6 @@
 for item in ./*
 do 
-    if [[ -f "$item" ]]
+    if [ -f "$item" ]
     then    
         echo "Displaying the contents of $item"
         sleep 1
